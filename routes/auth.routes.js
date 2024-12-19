@@ -16,7 +16,7 @@ router.post('/registration',
         check('password', 'Неверный пароль').isLength({min: 4, max: 20}),
         check('name', 'Имя обязательно для заполнения').not().isEmpty(),
         check('surname', 'Фамилия обязательна для заполнения').not().isEmpty(),
-        // check('selectedFilial', 'Филиал обязателен для заполнения').not().isEmpty(),
+        check('selectedFilial', 'Филиал обязателен для заполнения').not().isEmpty(),
         check('isChecked', 'Необходимо согласиться с условиями').equals('true') // Проверяем, что isChecked равен true
     ],
     async (req, res) => {

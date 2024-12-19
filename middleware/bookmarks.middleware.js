@@ -22,101 +22,114 @@ const getUserBookmarks = async (req, res) => {
 
     // Фильтруем закладки, исключая "Полученные" и "Оплаченные"
     const filteredBookmarks = user.bookmarks.filter((bookmark) => {
-      // Если у закладки нет trackId, она не будет считаться полученной и оплаченной
       if (!bookmark.trackId) return true;
 
       const track = bookmark.trackId;
-
-      // Проверяем, если закладка имеет статус "Получено" и флаг оплаты
       const receivedStatus = track.history.some(historyItem => historyItem.status.statusText === 'Получено');
-      return !(bookmark.isPaid || receivedStatus); // Исключаем закладки, которые оплачены или "Получены"
+      return !(bookmark.isPaid || receivedStatus);
     });
 
-    const bookmarks = filteredBookmarks.slice(skip, skip + limit); // Пагинация для отфильтрованных закладок
+    const bookmarks = filteredBookmarks.slice(skip, skip + limit);
 
     await Promise.all(
       bookmarks.map(async (bookmark) => {
         if (!bookmark.trackId) {
-          // Если trackId отсутствует, ищем трек по trackNumber
           const track = await Track.findOne({ track: bookmark.trackNumber });
 
           if (track) {
-            // Если трек найден, обновляем bookmark с trackId
             bookmark.trackId = track._id;
-            await user.save(); // Сохраняем обновленный trackId в закладке
+            bookmark.currentStatus = track.status;
 
-            // Проверка, есть ли уже запись с таким пользователем
             if (!track.user || track.user !== user.phone) {
               track.user = user.phone;
               await track.save();
             }
 
-            // Подтягиваем историю статусов и статус текст
             const populatedTrack = await Track.findById(track._id)
-              .populate('history.status', 'statusText'); // Подтягиваем статус с текстом
+              .populate('history.status', 'statusText');
+
+            // Рассчитываем цену с учетом персонального тарифа
+            const calculatedPrice = user.personalRate
+              ? (parseFloat(track.weight) * parseFloat(user.personalRate)).toFixed(2)
+              : track.price || 'Неизвестно';
+
+            // Обновляем поле price в модели Track, если был применен персональный тариф
+            if (user.personalRate) {
+              track.price = calculatedPrice;
+              await track.save();
+            }
 
             updatedBookmarks.push({
               ...bookmark.toObject(),
-              trackDetails: populatedTrack, // Добавляем информацию о треке
-              history: populatedTrack.history, // Добавляем историю статусов с текстом
-              price: user.personalRate ? (parseFloat(track.weight) * parseFloat(user.personalRate)).toFixed(2) : track.price || 'Неизвестно', // Рассчитываем сумму с учетом персонального тарифа, если он есть
-              weight: track.weight || 'Неизвестно', // Добавляем вес
-              place: track.place || '-' // Добавляем место
+              trackDetails: populatedTrack,
+              history: populatedTrack.history,
+              price: calculatedPrice,
+              weight: track.weight || 'Неизвестно',
+              place: track.place || '-',
             });
           } else {
-            // Если трек не найден, добавляем его в notFoundBookmarks
             notFoundBookmarks.push({
               trackNumber: bookmark.trackNumber,
               createdAt: bookmark.createdAt,
               description: bookmark.description,
               price: '-',
               weight: '-',
-              place: '-'
+              place: '-',
             });
           }
         } else {
-          // Если trackId уже есть, подтягиваем все данные трека
           const track = await Track.findById(bookmark.trackId)
-            .populate('history.status', 'statusText'); // Подтягиваем статус с текстом
+            .populate('history.status', 'statusText');
 
           if (track) {
-            // Проверка, есть ли уже запись с таким пользователем
             if (!track.user || track.user !== user.phone) {
               track.user = user.phone;
               await track.save();
             }
 
+            bookmark.currentStatus = track.status;
+
+            const calculatedPrice = user.personalRate
+              ? (parseFloat(track.weight) * parseFloat(user.personalRate)).toFixed(2)
+              : track.price || '-';
+
+            if (user.personalRate) {
+              track.price = calculatedPrice;
+              await track.save();
+            }
+
             updatedBookmarks.push({
               ...bookmark.toObject(),
-              trackDetails: track, // Информация о треке
-              history: track.history, // Добавляем историю статусов с текстом
-              price: user.personalRate ? (parseFloat(track.weight) * parseFloat(user.personalRate)).toFixed(2) : track.price || '-', // Рассчитываем сумму с учетом персонального тарифа, если он есть
-              weight: track.weight || '-', // Добавляем вес
-              place: track.place || '-' // Добавляем место
+              trackDetails: track,
+              history: track.history,
+              price: calculatedPrice,
+              weight: track.weight || '-',
+              place: track.place || '-',
             });
           } else {
-            // Если track не найден в базе данных
             notFoundBookmarks.push({
               trackNumber: bookmark.trackNumber,
               createdAt: bookmark.createdAt,
               description: bookmark.description,
               price: 'Неизвестно',
               weight: 'Неизвестно',
-              place: '-'
+              place: '-',
             });
           }
         }
       })
     );
 
-    const totalFilteredBookmarks = updatedBookmarks.length + notFoundBookmarks.length ; // Подсчитываем только те закладки, которые не были "Получены" и оплачены
+    await user.save();
+
+    const totalFilteredBookmarks = updatedBookmarks.length + notFoundBookmarks.length;
     const totalPages = Math.ceil(totalFilteredBookmarks / limit);
 
     res.status(200).json({
       updatedBookmarks,
       notFoundBookmarks,
       totalPages,
-      totalBookmarks: totalFilteredBookmarks // Возвращаем только количество тех закладок, которые не получены и не оплачены
+      totalBookmarks: totalFilteredBookmarks,
     });
   } catch (error) {
     console.error('Ошибка при получении закладок пользователя:', error);

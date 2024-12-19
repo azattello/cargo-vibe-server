@@ -84,25 +84,34 @@ router.get('/getBookmarksWithoutStatus', async (req, res) => {
     let bookmarksWithoutStatus = [];
 
     users.forEach(user => {
-      const userBookmarks = user.bookmarks.filter(bookmark => !bookmark.currentStatus).map(bookmark => ({
-        ...bookmark._doc,
-        user: {
-          userId: user._id,
-          name: user.name,
-          surname: user.surname,
-          phone: user.phone,
-          email: user.email
-        }
-      }));
+      const userBookmarks = user.bookmarks
+        .filter(bookmark => !bookmark.currentStatus)
+        .map(bookmark => ({
+          trackNumber: bookmark.trackNumber,
+          description: bookmark.description,
+          createdAt: bookmark.createdAt.toISOString(), // Форматируем как ISO строку для сохранения времени
+          user: {
+            userId: user._id,
+            name: user.name,
+            surname: user.surname,
+            phone: user.phone,
+            email: user.email
+          }
+        }));
       bookmarksWithoutStatus = bookmarksWithoutStatus.concat(userBookmarks);
     });
 
-    // Возвращаем закладки без статуса вместе с информацией о пользователе
+    // Сортируем закладки по дате создания в порядке убывания (новые закладки сверху)
+    bookmarksWithoutStatus.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // Возвращаем закладки без статуса вместе с информацией о пользователе и временем создания
     res.status(200).json(bookmarksWithoutStatus);
   } catch (error) {
     console.error('Ошибка при получении закладок без статуса:', error.message);
     res.status(500).json({ message: 'Произошла ошибка при получении закладок без статуса' });
   }
 });
+
+
 
 module.exports = router;
